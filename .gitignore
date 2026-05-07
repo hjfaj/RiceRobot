@@ -1,0 +1,55 @@
+# Compiled objects
+*.o
+*.obj
+*.exe
+*.axf
+*.elf
+*.lst
+*.out
+
+# Qt build artifacts
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+.qmake.stash
+Makefile
+*.pro.user
+
+# Qt build directories
+build-*/
+
+# Keil MDK artifacts
+*.uvguix.*
+*.scvd
+*.dbgconf
+*.uv4.log
+*.uv4.log.lock
+JLinkLog.txt
+JLinkSettings.ini
+
+# Keil MDK 编译产物目录
+Objects/
+Listings/
+*.uvoptx
+*.dep
+*.crf
+*.d
+*.lnp
+*.sct
+*.htm
+*.map
+
+# IDE
+.vscode/
+*.code-workspace
+.qoder/
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+robot_data.log
