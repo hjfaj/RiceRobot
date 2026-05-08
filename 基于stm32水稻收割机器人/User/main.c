@@ -297,7 +297,7 @@ int main(void) {
   HCSR04_Init();
   Buzzer_Init();
   Window_Show(windows);
-  Robot_Move(ROBOT_STOP);
+  Robot_Move(GO_FORWARD);
 
   mpu6050_online = 0;
   {
@@ -423,6 +423,23 @@ int main(void) {
         turn_start_tick = GetTick();
         left_no_signal_ms = 0;
         right_no_signal_ms = 0;
+      }
+    }
+
+    // ===== 定时上报传感器数据到服务器（每500ms） =====
+    {
+      static uint32_t last_send_tick = 0;
+      if (GetTick() - last_send_tick >= 500) {
+        char json[256];
+        uint8_t motor_stat = (saw_running || conveyor_running) ? 1 : 0;
+        sprintf(json,
+          "{\"weight\":%.2f,\"speed\":%.2f,\"motor_status\":%d,"
+          "\"battery\":100,\"light\":0,\"storage_full\":%s,"
+          "\"device_id\":\"STM32_001\"}",
+          (double)weight, (double)speed, motor_stat,
+          storage_full ? "true" : "false");
+        ESP8266_SendFrame(json);
+        last_send_tick = GetTick();
       }
     }
 

@@ -8,6 +8,7 @@
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QTime>
 #include <QTimer>
@@ -23,8 +24,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
   // 初始状态
   updateConnectionStatus(false, "Disconnected");
-  m_weightValue->setText("0.0 KG");
-  m_speedValue->setText("0.0 m/s");
+  m_weightValue->setText("0.0");
+  m_speedValue->setText("0.0");
   m_batteryBar->setValue(0);
   m_batteryLabel->setText("0%");
   m_lightValue->setText("0");
@@ -40,263 +41,237 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::setupUi() {
-  // 主窗口设置
-  this->setWindowTitle("监控终端");
+  this->setWindowTitle("RiceRobot 监控终端");
 #ifdef Q_OS_ANDROID
   this->showMaximized();
 #else
-  this->resize(850, 650);
+  this->resize(900, 680);
 #endif
 
-  // 中心部件
   QWidget *centralWidget = new QWidget(this);
   this->setCentralWidget(centralWidget);
   centralWidget->setObjectName("centralWidget");
 
   QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
-  mainLayout->setContentsMargins(20, 20, 20, 20);
-  mainLayout->setSpacing(20);
+  mainLayout->setContentsMargins(12, 12, 12, 12);
+  mainLayout->setSpacing(10);
 
   // ==========================================
-  // 1. 顶部标题栏
+  // 1. 顶部栏：标题 + 连接
   // ==========================================
-  QLabel *titleLabel =
-      new QLabel("🌾 水稻收割机器人监控终端 (TCP Client)", this);
+  QHBoxLayout *topBar = new QHBoxLayout();
+  QLabel *titleLabel = new QLabel("RiceRobot 监控终端", this);
   titleLabel->setObjectName("headerTitle");
-  titleLabel->setAlignment(Qt::AlignCenter);
 
-  // ==========================================
-  // 2. 连接控制栏
-  // ==========================================
-  QHBoxLayout *connLayout = new QHBoxLayout();
-  QLabel *ipLabel = new QLabel("服务器地址:", this);
+  QLabel *ipLabel = new QLabel("服务器:", this);
   m_ipEdit = new QLineEdit(this);
-  m_ipEdit->setText("113.45.231.111");    // 公网服务器IP
-  m_ipEdit->setPlaceholderText("请输入服务器IP或域名");
-  m_ipEdit->setFixedWidth(200);
+  m_ipEdit->setText("113.45.231.111");
+  m_ipEdit->setPlaceholderText("IP 地址");
+  m_ipEdit->setFixedWidth(160);
 
   QLabel *portLabel = new QLabel("端口:", this);
   m_portSpin = new QSpinBox(this);
   m_portSpin->setRange(1, 65535);
-  m_portSpin->setValue(8889);  // Qt客户端连接8889端口
-  m_portSpin->setFixedWidth(120);
+  m_portSpin->setValue(8889);
+  m_portSpin->setFixedWidth(100);
 
   m_connectBtn = new QPushButton("连接", this);
   m_connectBtn->setObjectName("btnConnect");
-  m_connectBtn->setFixedWidth(100);
+  m_connectBtn->setFixedSize(80, 32);
 
-  connLayout->addWidget(ipLabel);
-  connLayout->addWidget(m_ipEdit);
-  connLayout->addWidget(portLabel);
-  connLayout->addWidget(m_portSpin);
-  connLayout->addWidget(m_connectBtn);
-  connLayout->addStretch();
+  topBar->addWidget(titleLabel);
+  topBar->addStretch();
+  topBar->addWidget(ipLabel);
+  topBar->addWidget(m_ipEdit);
+  topBar->addWidget(portLabel);
+  topBar->addWidget(m_portSpin);
+  topBar->addWidget(m_connectBtn);
 
   // ==========================================
-  // 3. 中间区域：数据与控制区
+  // 2. 分页容器
   // ==========================================
-#ifdef Q_OS_ANDROID
-  QVBoxLayout *contentLayout = new QVBoxLayout(); // 手机竖屏使用上下布局
-#else
-  QHBoxLayout *contentLayout = new QHBoxLayout(); // 电脑使用左右布局
-#endif
-  contentLayout->setSpacing(20);
+  m_tabWidget = new QTabWidget(this);
+  m_tabWidget->setObjectName("mainTab");
 
-  // --- 数据监控区 ---
-  QVBoxLayout *leftLayout = new QVBoxLayout();
-  leftLayout->setSpacing(15);
+  // === Tab 1: 数据监控 ===
+  QWidget *tabMonitor = new QWidget();
+  QVBoxLayout *monitorLayout = new QVBoxLayout(tabMonitor);
+  monitorLayout->setContentsMargins(8, 8, 8, 8);
+  monitorLayout->setSpacing(10);
 
-  // 卡片1：载重
-  QFrame *weightCard = new QFrame(this);
-  weightCard->setObjectName("dataCardBlue");
-  QVBoxLayout *weightLayout = new QVBoxLayout(weightCard);
-  QLabel *wLabel = new QLabel("当前载重 (Weight)", this);
-  wLabel->setObjectName("cardLabel");
-  m_weightValue = new QLabel("0.0 KG", this);
-  m_weightValue->setObjectName("lcdNumber");
-  weightLayout->addWidget(wLabel);
-  weightLayout->addWidget(m_weightValue);
+  // 数值卡片 2x2 网格
+  QGridLayout *dataGrid = new QGridLayout();
+  dataGrid->setSpacing(10);
 
-  // 卡片2：行驶速度
-  QFrame *speedCard = new QFrame(this);
-  speedCard->setObjectName("dataCardBlue");
-  QVBoxLayout *speedLayout = new QVBoxLayout(speedCard);
-  QLabel *spLabel = new QLabel("行驶速度 (Speed)", this);
-  spLabel->setObjectName("cardLabel");
-  m_speedValue = new QLabel("0.0 m/s", this);
-  m_speedValue->setObjectName("lcdNumber");
-  speedLayout->addWidget(spLabel);
-  speedLayout->addWidget(m_speedValue);
+  auto makeCard = [&](const QString &title, QLabel *&value, const QString &unit,
+                       const QString &objName) {
+    QFrame *card = new QFrame();
+    card->setObjectName(objName);
+    QVBoxLayout *lay = new QVBoxLayout(card);
+    lay->setContentsMargins(12, 8, 12, 8);
+    QLabel *tt = new QLabel(title);
+    tt->setObjectName("cardLabel");
+    value = new QLabel("0");
+    value->setObjectName("lcdNumber");
+    QLabel *uu = new QLabel(unit);
+    uu->setObjectName("unitLabel");
+    QHBoxLayout *row = new QHBoxLayout();
+    row->addWidget(value);
+    row->addWidget(uu);
+    row->addStretch();
+    lay->addWidget(tt);
+    lay->addLayout(row);
+    return card;
+  };
 
-  // 卡片3：电量
-  QFrame *batteryCard = new QFrame(this);
+  // 第一行: 载重、速度
+  dataGrid->addWidget(makeCard("当前载重", m_weightValue, "KG", "dataCardBlue"), 0, 0);
+  dataGrid->addWidget(makeCard("行驶速度", m_speedValue, "m/s", "dataCardBlue"), 0, 1);
+
+  // 第二行: 电量、光照
+  QFrame *batteryCard = new QFrame();
   batteryCard->setObjectName("dataCardYellow");
   QVBoxLayout *batteryLayout = new QVBoxLayout(batteryCard);
-  QLabel *bLabel = new QLabel("电池电量 (Battery)", this);
+  batteryLayout->setContentsMargins(12, 8, 12, 8);
+  QLabel *bLabel = new QLabel("电池电量");
   bLabel->setObjectName("cardLabel");
-
-  m_batteryBar = new QProgressBar(this);
+  m_batteryBar = new QProgressBar();
   m_batteryBar->setObjectName("batteryBar");
   m_batteryBar->setRange(0, 100);
-  m_batteryBar->setTextVisible(false);
-
-  m_batteryLabel = new QLabel("0%", this);
+  m_batteryBar->setTextVisible(true);
+  m_batteryBar->setFormat("%p%");
+  m_batteryLabel = new QLabel("0%");
   m_batteryLabel->setObjectName("batteryText");
-  m_batteryLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-
   batteryLayout->addWidget(bLabel);
   batteryLayout->addWidget(m_batteryBar);
   batteryLayout->addWidget(m_batteryLabel);
+  dataGrid->addWidget(batteryCard, 1, 0);
 
-  // 卡片4：光照强度
-  QFrame *lightCard = new QFrame(this);
+  QFrame *lightCard = new QFrame();
   lightCard->setObjectName("dataCardYellow");
   QVBoxLayout *lightLayout = new QVBoxLayout(lightCard);
-  QLabel *lLabel = new QLabel("光照强度 (Light)", this);
+  lightLayout->setContentsMargins(12, 8, 12, 8);
+  QLabel *lLabel = new QLabel("光照强度");
   lLabel->setObjectName("cardLabel");
-  m_lightValue = new QLabel("0", this);
+  m_lightValue = new QLabel("0");
   m_lightValue->setObjectName("lcdNumber");
+  QLabel *luxUnit = new QLabel("Lux");
+  luxUnit->setObjectName("unitLabel");
+  QHBoxLayout *luxRow = new QHBoxLayout();
+  luxRow->addWidget(m_lightValue);
+  luxRow->addWidget(luxUnit);
+  luxRow->addStretch();
   lightLayout->addWidget(lLabel);
-  lightLayout->addWidget(m_lightValue);
+  lightLayout->addLayout(luxRow);
+  dataGrid->addWidget(lightCard, 1, 1);
 
-  // 卡片5：电机状态
-  QFrame *motorCard = new QFrame(this);
-  motorCard->setObjectName("dataCardGrey");
-  QVBoxLayout *motorLayout = new QVBoxLayout(motorCard);
-  QLabel *mLabel = new QLabel("电机状态 (Motor)", this);
-  mLabel->setObjectName("cardLabel");
-  m_motorStatusLabel = new QLabel("未知", this);
-  m_motorStatusLabel->setObjectName("connStatusText");
-  motorLayout->addWidget(mLabel);
-  motorLayout->addWidget(m_motorStatusLabel);
+  monitorLayout->addLayout(dataGrid);
 
-  // 卡片6：存储仓状态
-  QFrame *storageCard = new QFrame(this);
-  storageCard->setObjectName("dataCardGrey");
-  QVBoxLayout *storageLayout = new QVBoxLayout(storageCard);
-  QLabel *sLabel = new QLabel("存储仓 (Storage)", this);
-  sLabel->setObjectName("cardLabel");
-  m_storageLabel = new QLabel("未知", this);
-  m_storageLabel->setObjectName("connStatusText");
-  storageLayout->addWidget(sLabel);
-  storageLayout->addWidget(m_storageLabel);
+  // 状态信息组 (水平排列)
+  QHBoxLayout *statusRow = new QHBoxLayout();
+  statusRow->setSpacing(8);
 
-  // 卡片7：设备编号
-  QFrame *deviceCard = new QFrame(this);
-  deviceCard->setObjectName("dataCardGrey");
-  QVBoxLayout *deviceLayout = new QVBoxLayout(deviceCard);
-  QLabel *dLabel = new QLabel("检测设备 (Device ID)", this);
-  dLabel->setObjectName("cardLabel");
-  m_deviceIdLabel = new QLabel("N/A", this);
-  m_deviceIdLabel->setObjectName("connStatusText");
-  deviceLayout->addWidget(dLabel);
-  deviceLayout->addWidget(m_deviceIdLabel);
+  auto makeStatus = [&](const QString &title, QLabel *&label, const QString &init) {
+    QFrame *f = new QFrame();
+    f->setObjectName("statusCard");
+    QVBoxLayout *l = new QVBoxLayout(f);
+    l->setContentsMargins(8, 6, 8, 6);
+    QLabel *tt = new QLabel(title);
+    tt->setObjectName("cardLabel");
+    label = new QLabel(init);
+    label->setObjectName("connStatusText");
+    l->addWidget(tt);
+    l->addWidget(label);
+    return f;
+  };
 
-  // 卡片8：下位机在线状态
-  QFrame *onlineCard = new QFrame(this);
-  onlineCard->setObjectName("dataCardGrey");
-  QVBoxLayout *onlineLayout = new QVBoxLayout(onlineCard);
-  QLabel *oLabel = new QLabel("机器人状态 (Device Status)", this);
-  oLabel->setObjectName("cardLabel");
-  m_robotOnlineLabel = new QLabel("离线 (Offline)", this);
-  m_robotOnlineLabel->setObjectName("connStatusText");
-  onlineLayout->addWidget(oLabel);
-  onlineLayout->addWidget(m_robotOnlineLabel);
+  statusRow->addWidget(makeStatus("电机状态", m_motorStatusLabel, "未知"));
+  statusRow->addWidget(makeStatus("存储仓", m_storageLabel, "未知"));
+  statusRow->addWidget(makeStatus("设备编号", m_deviceIdLabel, "N/A"));
+  statusRow->addWidget(makeStatus("机器人", m_robotOnlineLabel, "离线"));
+  statusRow->addWidget(makeStatus("网络", m_connStatusLabel, "Disconnected"));
+  monitorLayout->addLayout(statusRow);
+  monitorLayout->addStretch();
 
-  // 卡片9：连接状态
-  QFrame *connCard = new QFrame(this);
-  connCard->setObjectName("dataCardGrey");
-  QVBoxLayout *cLayout = new QVBoxLayout(connCard);
-  QLabel *cLabel = new QLabel("连接状态", this);
-  cLabel->setObjectName("cardLabel");
-  m_connStatusLabel = new QLabel("Disconnected", this);
-  m_connStatusLabel->setObjectName("connStatusText");
-  cLayout->addWidget(cLabel);
-  cLayout->addWidget(m_connStatusLabel);
+  m_tabWidget->addTab(tabMonitor, "  数据监控  ");
 
-  leftLayout->addWidget(weightCard);
-  leftLayout->addWidget(speedCard);
-  leftLayout->addWidget(batteryCard);
-  leftLayout->addWidget(lightCard);
-  leftLayout->addWidget(motorCard);
-  leftLayout->addWidget(storageCard);
-  leftLayout->addWidget(deviceCard);
-  leftLayout->addWidget(onlineCard);
-  leftLayout->addWidget(connCard);
-  leftLayout->addStretch();
+  // === Tab 2: 运动控制 ===
+  QWidget *tabControl = new QWidget();
+  QVBoxLayout *controlLayout = new QVBoxLayout(tabControl);
+  controlLayout->setContentsMargins(16, 16, 16, 16);
+  controlLayout->setSpacing(12);
 
-  // --- 右侧：控制按钮区 ---
-  QGridLayout *rightLayout = new QGridLayout();
-  rightLayout->setSpacing(15);
-
-  m_startBtn = new QPushButton("启动收割 (START)", this);
+  m_startBtn = new QPushButton("启动收割");
   m_startBtn->setObjectName("btnStart");
-  m_startBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  m_startBtn->setMinimumHeight(60);
 
-  m_forwardBtn = new QPushButton("前进", this);
-  m_forwardBtn->setObjectName("btnFunc");
-  m_forwardBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-  m_backwardBtn = new QPushButton("后退", this);
-  m_backwardBtn->setObjectName("btnFunc");
-  m_backwardBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-  m_leftBtn = new QPushButton("左转", this);
-  m_leftBtn->setObjectName("btnFunc");
-  m_leftBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-  m_rightBtn = new QPushButton("右转", this);
-  m_rightBtn->setObjectName("btnFunc");
-  m_rightBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-
-  m_stopBtn = new QPushButton("紧急停止 (STOP)", this);
+  m_stopBtn = new QPushButton("紧急停止");
   m_stopBtn->setObjectName("btnStop");
-  m_stopBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  m_stopBtn->setMinimumHeight(60);
 
-  m_speedSlider = new QSlider(Qt::Horizontal, this);
+  // 方向键布局
+  QGridLayout *dirGrid = new QGridLayout();
+  dirGrid->setSpacing(8);
+
+  m_forwardBtn = new QPushButton("前进");
+  m_forwardBtn->setObjectName("btnFunc");
+  m_forwardBtn->setMinimumHeight(64);
+
+  m_backwardBtn = new QPushButton("后退");
+  m_backwardBtn->setObjectName("btnFunc");
+  m_backwardBtn->setMinimumHeight(64);
+
+  m_leftBtn = new QPushButton("左转");
+  m_leftBtn->setObjectName("btnFunc");
+  m_leftBtn->setMinimumHeight(64);
+
+  m_rightBtn = new QPushButton("右转");
+  m_rightBtn->setObjectName("btnFunc");
+  m_rightBtn->setMinimumHeight(64);
+
+  dirGrid->addWidget(m_forwardBtn, 0, 1);
+  dirGrid->addWidget(m_leftBtn, 1, 0);
+  dirGrid->addWidget(m_rightBtn, 1, 2);
+  dirGrid->addWidget(m_backwardBtn, 2, 1);
+
+  // 速度控制
+  QHBoxLayout *speedLayout = new QHBoxLayout();
+  QLabel *speedLabel = new QLabel("电机速度:");
+  speedLabel->setObjectName("cardLabel");
+  m_speedSlider = new QSlider(Qt::Horizontal);
   m_speedSlider->setObjectName("speedSlider");
   m_speedSlider->setRange(10, 100);
   m_speedSlider->setValue(30);
-  m_speedSlider->setTickPosition(QSlider::TicksBelow);
-  m_speedSlider->setTickInterval(10);
-  m_speedSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-
-  m_speedSliderLabel = new QLabel("速度: 30%", this);
+  m_speedSliderLabel = new QLabel("30%");
   m_speedSliderLabel->setObjectName("speedSliderLabel");
-  m_speedSliderLabel->setAlignment(Qt::AlignCenter);
+  m_speedSliderLabel->setFixedWidth(70);
+  speedLayout->addWidget(speedLabel);
+  speedLayout->addWidget(m_speedSlider);
+  speedLayout->addWidget(m_speedSliderLabel);
 
-  QHBoxLayout *motorSpeedLayout = new QHBoxLayout();
-  motorSpeedLayout->addWidget(new QLabel("电机速度:", this));
-  motorSpeedLayout->addWidget(m_speedSlider);
-  motorSpeedLayout->addWidget(m_speedSliderLabel);
+  controlLayout->addWidget(m_startBtn);
+  controlLayout->addLayout(dirGrid);
+  controlLayout->addWidget(m_stopBtn);
+  controlLayout->addLayout(speedLayout);
+  controlLayout->addStretch();
 
-  rightLayout->addWidget(m_startBtn, 0, 0, 1, 2);
-  rightLayout->addWidget(m_forwardBtn, 1, 0);
-  rightLayout->addWidget(m_backwardBtn, 1, 1);
-  rightLayout->addWidget(m_leftBtn, 2, 0);
-  rightLayout->addWidget(m_rightBtn, 2, 1);
-  rightLayout->addWidget(m_stopBtn, 3, 0, 1, 2);
-  rightLayout->addLayout(motorSpeedLayout, 4, 0, 1, 2);
+  m_tabWidget->addTab(tabControl, "  运动控制  ");
 
-  // 设置两侧比例
-  contentLayout->addLayout(leftLayout, 1);
-  contentLayout->addLayout(rightLayout, 1);
-
-  // ==========================================
-  // 4. 底部日志区
-  // ==========================================
-  m_logArea = new QTextEdit(this);
+  // === Tab 3: 日志 ===
+  QWidget *tabLog = new QWidget();
+  QVBoxLayout *logLayout = new QVBoxLayout(tabLog);
+  logLayout->setContentsMargins(4, 4, 4, 4);
+  m_logArea = new QTextEdit();
   m_logArea->setObjectName("logArea");
   m_logArea->setReadOnly(true);
-  m_logArea->setFixedHeight(150);
+  logLayout->addWidget(m_logArea);
 
-  // 主布局组装
-  mainLayout->addWidget(titleLabel);
-  mainLayout->addLayout(connLayout);
-  mainLayout->addLayout(contentLayout, 1);
-  mainLayout->addWidget(m_logArea);
+  m_tabWidget->addTab(tabLog, "  日志  ");
 
-  // 禁用控制按钮直到连接成功
+  // 主布局
+  mainLayout->addLayout(topBar);
+  mainLayout->addWidget(m_tabWidget, 1);
+
   m_startBtn->setEnabled(false);
   m_stopBtn->setEnabled(false);
   m_forwardBtn->setEnabled(false);
@@ -304,359 +279,141 @@ void MainWindow::setupUi() {
   m_leftBtn->setEnabled(false);
   m_rightBtn->setEnabled(false);
 
-  appendLog("System initialized. Waiting for connection...");
+  appendLog("系统已初始化，等待连接...");
 }
 
 void MainWindow::setupStyles() {
-#ifdef Q_OS_ANDROID
-  // 安卓版专属样式：放大字体、加高按钮等，以适配触控
   QString qss = R"(
-        /* 全局背景和文本 */
-        #centralWidget {
-            background-color: #333333;
-        }
-        QLabel, QLineEdit, QSpinBox, QPushButton, QTextEdit {
-            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            color: #ffffff;
-        }
+    /* 全局 */
+    #centralWidget { background-color: #2b2b2b; }
+    QLabel, QLineEdit, QSpinBox, QPushButton, QTextEdit {
+      font-family: 'Microsoft YaHei', 'Segoe UI', sans-serif;
+      color: #e0e0e0;
+    }
+    QLabel { font-size: 13px; }
 
-        /* 顶部标题栏 */
-        #headerTitle {
-            font-size: 26px;
-            font-weight: bold;
-            color: #00d2ff;
-            border-bottom: 1px solid #555555;
-            padding-bottom: 15px;
-        }
+    /* 标题 */
+    #headerTitle {
+      font-size: 18px; font-weight: bold; color: #00d2ff;
+    }
 
-        /* 输入框样式 */
-        QLineEdit, QSpinBox {
-            background-color: #222222;
-            border: 1px solid #555555;
-            border-radius: 6px;
-            padding: 10px;
-            font-size: 18px;
-            color: #ffffff;
-        }
-        QLineEdit:hover, QSpinBox:hover {
-            border: 1px solid #888888;
-            background-color: #2a2a2a;
-        }
-        QLineEdit:focus, QSpinBox:focus {
-            border: 1px solid #00d2ff;
-            background-color: #2a2a2a;
-        }
+    /* 输入框 */
+    QLineEdit, QSpinBox {
+      background: #3c3c3c; border: 1px solid #555; border-radius: 4px;
+      padding: 4px 8px; font-size: 13px;
+    }
+    QLineEdit:focus, QSpinBox:focus { border-color: #00d2ff; }
 
-        /* 连接状态/小字 */
-        QLabel { font-size: 16px; }
-        
-        /* 各种数据卡片共有样式 */
-        QFrame {
-            background-color: #444444;
-            border-radius: 10px;
-            padding: 15px;
-        }
-        #dataCardBlue { border-left: 8px solid #00d2ff; min-height: 100px; }
-        #dataCardYellow { border-left: 8px solid #ffcc00; min-height: 100px; }
-        #dataCardGrey { border-left: 8px solid #aaaaaa; min-height: 80px; }
+    /* 连接按钮 */
+    #btnConnect {
+      background: #0078d4; border: none; border-radius: 4px;
+      font-size: 13px; font-weight: bold; color: #fff; padding: 4px;
+    }
+    #btnConnect:hover { background: #1a8ae8; }
+    #btnConnect:pressed { background: #005fa3; }
 
-        /* 卡片内标签 */
-        #cardLabel {
-            font-size: 16px;
-            color: #aaaaaa;
-            background: transparent;
-            min-height: 24px;
-        }
+    /* Tab 控件 */
+    QTabWidget::pane {
+      background: #333; border: 1px solid #555; border-radius: 4px;
+    }
+    QTabBar::tab {
+      background: #444; color: #ccc; padding: 8px 24px;
+      border: 1px solid #555; border-bottom: none;
+      border-top-left-radius: 6px; border-top-right-radius: 6px;
+      font-size: 14px; font-weight: bold;
+    }
+    QTabBar::tab:selected {
+      background: #333; color: #00d2ff;
+      border-bottom: 2px solid #00d2ff;
+    }
+    QTabBar::tab:hover:!selected { background: #4a4a4a; }
 
-        /* LCD 大数字 */
-        #lcdNumber {
-            font-family: 'Microsoft YaHei', 'SimHei', 'Segoe UI', sans-serif;
-            font-size: 48px;
-            color: #00ff00;
-            font-weight: bold;
-            background: transparent;
-            min-height: 70px;
-        }
+    /* 数据卡片 */
+    #dataCardBlue, #dataCardYellow {
+      background: #3a3a3a; border-left: 4px solid #00d2ff; border-radius: 6px;
+    }
+    #dataCardYellow { border-left: 4px solid #ffcc00; }
 
-        /* 状态文本 */
-        #connStatusText {
-            color: #00d2ff;
-            font-size: 20px;
-            font-weight: bold;
-            background: transparent;
-            min-height: 30px;
-        }
-        #batteryText {
-            color: #ffcc00;
-            font-size: 20px;
-            font-weight: bold;
-            background: transparent;
-            min-height: 30px;
-        }
+    #cardLabel { color: #999; font-size: 12px; background: transparent; }
 
-        /* 进度条 */
-        QProgressBar {
-            background-color: #222222;
-            border: none;
-            border-radius: 10px;
-            height: 20px;
-            text-align: center;
-        }
-        QProgressBar::chunk {
-            background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #ffcc00, stop: 1 #ff6600);
-            border-radius: 10px;
-        }
+    /* LCD 数值 */
+    #lcdNumber {
+      font-size: 32px; font-weight: bold; color: #00ff00;
+      background: transparent;
+    }
+    #unitLabel {
+      font-size: 14px; color: #888; background: transparent;
+      padding-left: 4px;
+    }
 
-        /* 按钮通用样式 */
-        QPushButton {
-            border: none;
-            border-radius: 10px;
-            font-size: 20px;
-            font-weight: bold;
-            color: white;
-            padding: 20px;
-        }
-        QPushButton:disabled {
-            background-color: #555555 !important;
-            color: #888888;
-        }
+    /* 状态卡片 */
+    #statusCard {
+      background: #3a3a3a; border-left: 3px solid #888; border-radius: 4px;
+      min-width: 80px; padding: 4px 8px;
+    }
 
-        /* 连接按钮 */
-        #btnConnect {
-            background-color: #555555;
-            font-size: 18px;
-            padding: 10px;
-        }
-        #btnConnect:pressed { background-color: #444444; padding-top: 12px; padding-bottom: 8px; }
+    /* 状态文本 */
+    #connStatusText {
+      font-size: 14px; font-weight: bold; background: transparent;
+      min-height: 20px;
+    }
+    #batteryText { font-size: 13px; font-weight: bold; background: transparent; }
 
-        /* 控制按钮：启动 (绿) */
-        #btnStart { background-color: #28a745; min-height: 80px; font-size: 24px; }
-        #btnStart:pressed { background-color: #1e7e34; padding-top: 22px; padding-bottom: 18px; }
+    /* 进度条 */
+    QProgressBar {
+      background: #222; border: none; border-radius: 6px; height: 18px;
+      text-align: center; font-size: 12px; color: #fff;
+    }
+    QProgressBar::chunk {
+      background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #ffcc00, stop:1 #ff8800);
+      border-radius: 6px;
+    }
 
-        /* 控制按钮：停止 (红) */
-        #btnStop { background-color: #dc3545; min-height: 80px; font-size: 24px; }
-        #btnStop:pressed { background-color: #bd2130; padding-top: 22px; padding-bottom: 18px; }
+    /* 控制按钮 */
+    #btnStart {
+      background: #28a745; border: none; border-radius: 8px;
+      font-size: 18px; font-weight: bold; color: #fff;
+    }
+    #btnStart:hover { background: #34ce57; }
+    #btnStart:pressed { background: #1e7e34; }
+    #btnStart:disabled { background: #555; color: #888; }
 
-        /* 控制按钮：功能 (蓝) */
-        #btnFunc { background-color: #007bff; min-height: 70px; }
-        #btnFunc:pressed { background-color: #0062cc; padding-top: 22px; padding-bottom: 18px; }
+    #btnStop {
+      background: #dc3545; border: none; border-radius: 8px;
+      font-size: 18px; font-weight: bold; color: #fff;
+    }
+    #btnStop:hover { background: #f04b5a; }
+    #btnStop:pressed { background: #bd2130; }
+    #btnStop:disabled { background: #555; color: #888; }
 
-        /* 速度滑块 */
-        #speedSlider {
-            background-color: #222222;
-            height: 30px;
-            border-radius: 5px;
-        }
-        #speedSlider::groove:horizontal {
-            background: #444444;
-            height: 10px;
-            border-radius: 5px;
-        }
-        #speedSlider::handle:horizontal {
-            background: #00d2ff;
-            width: 30px;
-            margin: -10px 0;
-            border-radius: 15px;
-        }
-        #speedSlider::sub-page:horizontal {
-            background: #00d2ff;
-            border-radius: 5px;
-        }
-        #speedSliderLabel {
-            color: #00ff00;
-            font-size: 20px;
-            font-weight: bold;
-            min-width: 100px;
-        }
+    #btnFunc {
+      background: #0078d4; border: none; border-radius: 8px;
+      font-size: 16px; font-weight: bold; color: #fff;
+    }
+    #btnFunc:hover { background: #1a8ae8; }
+    #btnFunc:pressed { background: #005fa3; }
+    #btnFunc:disabled { background: #555; color: #888; }
 
-        /* 日志区 */
-        #logArea {
-            background-color: #000000;
-            color: #00ff00;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 16px;
-            border: 1px solid #555555;
-            border-radius: 6px;
-        }
-    )";
-#else
-  // 暗黑工业风 QSS
-  QString qss = R"(
-        /* 全局背景和文本 */
-        #centralWidget {
-            background-color: #333333;
-        }
-        QLabel, QLineEdit, QSpinBox, QPushButton, QTextEdit {
-            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-            color: #ffffff;
-        }
+    /* 速度滑块 */
+    #speedSlider { background: transparent; height: 28px; }
+    #speedSlider::groove:horizontal {
+      background: #444; height: 8px; border-radius: 4px;
+    }
+    #speedSlider::handle:horizontal {
+      background: #00d2ff; width: 22px; margin: -7px 0; border-radius: 11px;
+    }
+    #speedSlider::sub-page:horizontal {
+      background: #00d2ff; border-radius: 4px;
+    }
+    #speedSliderLabel { color: #00ff00; font-size: 15px; font-weight: bold; }
 
-        /* 顶部标题栏 */
-        #headerTitle {
-            font-size: 24px;
-            font-weight: bold;
-            color: #00d2ff;
-            border-bottom: 1px solid #555555;
-            padding-bottom: 10px;
-        }
-
-        /* 输入框样式 */
-        QLineEdit, QSpinBox {
-            background-color: #222222;
-            border: 1px solid #555555;
-            border-radius: 4px;
-            padding: 5px;
-            color: #ffffff;
-        }
-        QLineEdit:hover, QSpinBox:hover {
-            border: 1px solid #888888;
-            background-color: #2a2a2a;
-        }
-        QLineEdit:focus, QSpinBox:focus {
-            border: 1px solid #00d2ff;
-            background-color: #2a2a2a;
-        }
-
-        /* 连接状态/小字 */
-        QLabel { font-size: 14px; }
-        
-        /* 各种数据卡片共有样式 */
-        QFrame {
-            background-color: #444444;
-            border-radius: 8px;
-            padding: 10px;
-        }
-        #dataCardBlue { border-left: 5px solid #00d2ff; min-height: 80px; }
-        #dataCardBlue:hover { background-color: #4a4a4a; border-left: 5px solid #33ddff; }
-        #dataCardYellow { border-left: 5px solid #ffcc00; min-height: 80px; }
-        #dataCardYellow:hover { background-color: #4a4a4a; border-left: 5px solid #ffdd44; }
-        #dataCardGrey { border-left: 5px solid #aaaaaa; min-height: 60px; }
-        #dataCardGrey:hover { background-color: #4a4a4a; border-left: 5px solid #cccccc; }
-
-        /* 卡片内标签 */
-        #cardLabel {
-            font-size: 14px;
-            color: #aaaaaa;
-            background: transparent;
-            min-height: 20px;
-        }
-
-        /* LCD 大数字 */
-        #lcdNumber {
-            font-family: 'Microsoft YaHei', 'SimHei', 'Segoe UI', sans-serif;
-            font-size: 36px;
-            color: #00ff00;
-            font-weight: bold;
-            background: transparent;
-            min-height: 50px;
-        }
-
-        /* 状态文本 */
-        #connStatusText {
-            color: #00d2ff;
-            font-size: 16px;
-            font-weight: bold;
-            background: transparent;
-            min-height: 24px;
-        }
-        #batteryText {
-            color: #ffcc00;
-            font-size: 16px;
-            font-weight: bold;
-            background: transparent;
-            min-height: 24px;
-        }
-
-        /* 进度条 */
-        QProgressBar {
-            background-color: #222222;
-            border: none;
-            border-radius: 8px;
-            height: 16px;
-            text-align: center;
-        }
-        QProgressBar::chunk {
-            background-color: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #ffcc00, stop: 1 #ff6600);
-            border-radius: 8px;
-        }
-
-        /* 按钮通用样式 */
-        QPushButton {
-            border: none;
-            border-radius: 8px;
-            font-size: 18px;
-            font-weight: bold;
-            color: white;
-            padding: 15px;
-        }
-        QPushButton:disabled {
-            background-color: #555555 !important;
-            color: #888888;
-        }
-
-        /* 连接按钮 */
-        #btnConnect {
-            background-color: #555555;
-            font-size: 14px;
-            padding: 5px;
-        }
-        #btnConnect:hover { background-color: #666666; }
-        #btnConnect:pressed { background-color: #444444; padding-top: 6px; padding-bottom: 4px; }
-
-        /* 控制按钮：启动 (绿) */
-        #btnStart { background-color: #28a745; min-height: 50px; }
-        #btnStart:hover { background-color: #218838; }
-        #btnStart:pressed { background-color: #1e7e34; padding-top: 17px; padding-bottom: 13px; }
-
-        /* 控制按钮：停止 (红) */
-        #btnStop { background-color: #dc3545; min-height: 50px; }
-        #btnStop:hover { background-color: #c82333; }
-        #btnStop:pressed { background-color: #bd2130; padding-top: 17px; padding-bottom: 13px; }
-
-        /* 控制按钮：功能 (蓝) */
-        #btnFunc { background-color: #007bff; min-height: 50px; }
-        #btnFunc:hover { background-color: #0069d9; }
-        #btnFunc:pressed { background-color: #0062cc; padding-top: 17px; padding-bottom: 13px; }
-
-        /* 速度滑块 */
-        #speedSlider {
-            background-color: #222222;
-            height: 25px;
-            border-radius: 5px;
-        }
-        #speedSlider::groove:horizontal {
-            background: #444444;
-            height: 8px;
-            border-radius: 4px;
-        }
-        #speedSlider::handle:horizontal {
-            background: #00d2ff;
-            width: 20px;
-            margin: -6px 0;
-            border-radius: 10px;
-        }
-        #speedSlider::sub-page:horizontal {
-            background: #00d2ff;
-            border-radius: 4px;
-        }
-        #speedSliderLabel {
-            color: #00ff00;
-            font-size: 16px;
-            font-weight: bold;
-            min-width: 80px;
-        }
-
-        /* 日志区 */
-        #logArea {
-            background-color: #000000;
-            color: #00ff00;
-            font-family: 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
-            border: 1px solid #555555;
-            border-radius: 4px;
-        }
-    )";
-#endif
+    /* 日志 */
+    #logArea {
+      background: #1e1e1e; color: #00dd00;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 13px; border: 1px solid #444; border-radius: 4px;
+    }
+  )";
 
   this->setStyleSheet(qss);
 }
@@ -706,36 +463,20 @@ void MainWindow::appendLog(const QString &msg) {
 
 void MainWindow::updateConnectionStatus(bool connected, const QString &info) {
   if (connected) {
-    m_connStatusLabel->setText(QString("Connected: %1").arg(info));
-#ifdef Q_OS_ANDROID
-    m_connStatusLabel->setStyleSheet(
-        "color: #00d2ff; font-size: 20px; font-weight: bold; background: "
-        "transparent;");
-#else
-    m_connStatusLabel->setStyleSheet(
-        "color: #00d2ff; font-size: 16px; font-weight: bold; background: "
-        "transparent;");
-#endif
+    m_connStatusLabel->setText("已连接");
+    m_connStatusLabel->setStyleSheet("color: #00ff00; font-weight: bold; background: transparent;");
     m_connectBtn->setText("断开");
     m_ipEdit->setEnabled(false);
     m_portSpin->setEnabled(false);
+    m_tabWidget->setTabText(0, "  数据监控  "); // 可加绿色圆点
   } else {
-    m_connStatusLabel->setText(info.isEmpty() ? "Disconnected" : info);
-#ifdef Q_OS_ANDROID
-    m_connStatusLabel->setStyleSheet(
-        "color: #aaaaaa; font-size: 20px; font-weight: bold; background: "
-        "transparent;");
-#else
-    m_connStatusLabel->setStyleSheet(
-        "color: #aaaaaa; font-size: 16px; font-weight: bold; background: "
-        "transparent;");
-#endif
+    m_connStatusLabel->setText("未连接");
+    m_connStatusLabel->setStyleSheet("color: #999; font-weight: bold; background: transparent;");
     m_connectBtn->setText("连接");
     m_ipEdit->setEnabled(true);
     m_portSpin->setEnabled(true);
   }
 
-  // 控制按钮使能状态
   m_startBtn->setEnabled(connected);
   m_stopBtn->setEnabled(connected);
   m_forwardBtn->setEnabled(connected);
@@ -789,12 +530,11 @@ void MainWindow::onTcpConnected() {
 void MainWindow::onTcpDisconnected() {
   appendLog("TCP Disconnected");
   updateConnectionStatus(false, "Disconnected");
-  m_robotOnlineLabel->setText("离线 (Offline)");
-  m_robotOnlineLabel->setStyleSheet(
-      "color: #aaaaaa; font-weight: bold; background: transparent;");
+  m_robotOnlineLabel->setText("离线");
+  m_robotOnlineLabel->setStyleSheet("color: #999; font-weight: bold; background: transparent;");
 
-  m_weightValue->setText("0.0 KG");
-  m_speedValue->setText("0.0 m/s");
+  m_weightValue->setText("0");
+  m_speedValue->setText("0.0");
   m_batteryBar->setValue(0);
   m_batteryLabel->setText("0%");
   m_lightValue->setText("0");
@@ -892,9 +632,8 @@ void MainWindow::tryParseFrame() {
 
 void MainWindow::parseReceivedData(const QByteArray &data) {
   // 只要收到并成功解析了数据，就说明下位机在线
-  m_robotOnlineLabel->setText("在线 (Online)");
-  m_robotOnlineLabel->setStyleSheet(
-      "color: #00ff00; font-weight: bold; background: transparent;");
+  m_robotOnlineLabel->setText("在线");
+  m_robotOnlineLabel->setStyleSheet("color: #00ff00; font-weight: bold; background: transparent;");
 
   QJsonParseError err;
   QJsonDocument doc = QJsonDocument::fromJson(data, &err);
@@ -906,11 +645,11 @@ void MainWindow::parseReceivedData(const QByteArray &data) {
 
   if (obj.contains("weight")) {
     double w = obj["weight"].toDouble();
-    m_weightValue->setText(QString::number(w, 'f', 1) + " KG");
+    m_weightValue->setText(QString::number(w, 'f', 1));
   }
   if (obj.contains("speed")) {
     double s = obj["speed"].toDouble();
-    m_speedValue->setText(QString::number(s, 'f', 1) + " m/s");
+    m_speedValue->setText(QString::number(s, 'f', 1));
   }
   if (obj.contains("battery")) {
     int b = obj["battery"].toInt();
@@ -924,17 +663,16 @@ void MainWindow::parseReceivedData(const QByteArray &data) {
   if (obj.contains("motor_status")) {
     int motorVal = obj["motor_status"].toInt();
     QString mStr = "未知";
-    QString color = "#aaaaaa";
+    QString color = "#999";
     switch (motorVal) {
-    case 0: mStr = "停止";       color = "#ffcc00"; break;
-    case 1: mStr = "正转(收割)"; color = "#00ff00"; break;
-    case 2: mStr = "反转";       color = "#00d2ff"; break;
-    case 3: mStr = "【故障】";   color = "#ff0000"; break;
+    case 0: mStr = "停止";      color = "#ffcc00"; break;
+    case 1: mStr = "收割中";    color = "#00ff00"; break;
+    case 2: mStr = "反转";      color = "#00d2ff"; break;
+    case 3: mStr = "故障";      color = "#ff0000"; break;
     }
     m_motorStatusLabel->setText(mStr);
     m_motorStatusLabel->setStyleSheet(
-        QString("color: %1; font-weight: bold; background: transparent;")
-            .arg(color));
+        QString("color: %1; font-weight: bold; background: transparent;").arg(color));
   }
   if (obj.contains("storage_full")) {
     if (obj["storage_full"].toBool()) {
@@ -990,7 +728,7 @@ void MainWindow::onLeftClicked() { sendCommand("CMD:LEFT"); }
 void MainWindow::onRightClicked() { sendCommand("CMD:RIGHT"); }
 
 void MainWindow::onSpeedSliderMoved(int value) {
-  m_speedSliderLabel->setText(QString("速度: %1%").arg(value));
+  m_speedSliderLabel->setText(QString("%1%").arg(value));
 }
 
 void MainWindow::onSpeedSliderReleased() {

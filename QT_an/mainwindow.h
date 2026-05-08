@@ -21,6 +21,7 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QTcpSocket>
 #include <QTextEdit>
 #include <QTimer>
@@ -97,6 +98,9 @@ private:
   // ---- 速度控制 ----
   QSlider *m_speedSlider;     // 速度滑块
   QLabel *m_speedSliderLabel; // 速度显示标签
+
+  // ---- Tab 容器 ----
+  QTabWidget *m_tabWidget;   // 分页容器
 
   // ---- 日志区 ----
   QTextEdit *m_logArea; // 日志文本框

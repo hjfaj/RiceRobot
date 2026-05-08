@@ -247,6 +247,51 @@ void removeQtClient(int fd) {
 }
 
 /**
+ * @brief 将 Qt 客户端的控制指令转发给所有已连接的 ESP8266
+ *
+ * Qt 下发的是纯文本指令（如 CMD:START\r\n），直接透传给 ESP8266，
+ * ESP8266 固件会通过串口原样发给 STM32。
+ *
+ * @param data  要转发的指令数据
+ * @return      成功发送的 ESP8266 客户端数量
+ */
+int forwardToEspClients(const std::string &data) {
+  std::vector<int> broken;
+  int sent_count = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(g_esp_clients_mutex);
+    for (int fd : g_esp_clients) {
+      size_t total_sent = 0;
+      bool failed = false;
+      while (total_sent < data.size()) {
+        ssize_t result = send(fd, data.data() + total_sent,
+                              data.size() - total_sent, MSG_NOSIGNAL);
+        if (result < 0) {
+          if (errno == EAGAIN || errno == EWOULDBLOCK)
+            break;
+          broken.push_back(fd);
+          failed = true;
+          break;
+        }
+        total_sent += result;
+      }
+      if (!failed && total_sent > 0) sent_count++;
+    }
+  }
+
+  if (!broken.empty()) {
+    std::lock_guard<std::mutex> lock(g_esp_clients_mutex);
+    for (int fd : broken) g_esp_clients.erase(fd);
+  }
+  for (int fd : broken) {
+    shutdown(fd, SHUT_RDWR);
+    close(fd);
+  }
+  return sent_count;
+}
+
+/**
  * @brief 将数据帧广播给所有已连接的 Qt 客户端
  *
  * 广播格式：与 ESP8266 上报格式完全相同
@@ -560,20 +605,38 @@ void handleQtClient(int client_fd, const std::string &client_ip) {
   addQtClient(client_fd);
 
   uint8_t buffer[256];
+  std::string line_buf; // 行缓冲：累积TCP流直到收到\n才转发
 
   while (g_running) {
-    // 监听 Qt 客户端是否断开（或发来控制命令）
     ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer), 0);
     if (bytes_read == 0) {
-      // Qt 客户端主动断开
       break;
     } else if (bytes_read < 0) {
       if (errno == EAGAIN || errno == EWOULDBLOCK)
         continue;
       break;
     }
-    // TODO: 如需处理 Qt 客户端发来的控制命令，在此解析 buffer
-    // 例如：电机启停、紧急停止等指令
+    line_buf.append(reinterpret_cast<char *>(buffer), bytes_read);
+
+    // 逐行处理（以 \n 分隔），防止 TCP 粘包/半包
+    size_t pos;
+    while ((pos = line_buf.find('\n')) != std::string::npos) {
+      std::string line = line_buf.substr(0, pos);
+      line_buf.erase(0, pos + 1);
+
+      // 清理 \r
+      while (!line.empty() && line.back() == '\r')
+        line.pop_back();
+      if (line.empty()) continue;
+
+      int fwd = forwardToEspClients(line + "\r\n");
+      if (fwd > 0) {
+        log("INFO", "[命令转发] Qt→" + std::to_string(fwd) + "台机器人: " + line,
+            COLOR_CYAN);
+      } else {
+        log("WARN", "[命令转发] 无ESP8266在线，指令丢弃: " + line, COLOR_YELLOW);
+      }
+    }
   }
 
   removeQtClient(client_fd);
